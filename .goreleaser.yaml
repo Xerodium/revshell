@@ -1,0 +1,10 @@
+version: 2
+
+builds:
+  - main: .
+    binary: revshell
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
