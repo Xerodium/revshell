@@ -9,7 +9,9 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"strconv"
 
+	"math/rand/v2"
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 )
@@ -86,6 +88,17 @@ func selectTunnelAddress() (string, error) {
 	}
 
 	return selectedIP, nil
+} 
+
+func selectTunnelPort() (string, error) {
+	selectedPort := rand.IntN(999) + 9000
+	listener, err := net.Listen("tcp", ":"+strconv.Itoa(selectedPort))
+	if err != nil {
+		return "", fmt.Errorf("Port unavailable:", err)
+	}
+	defer listener.Close()
+
+	return strconv.Itoa(selectedPort), nil
 }
 
 func addressIP(address net.Addr) net.IP {
@@ -138,6 +151,13 @@ var rootCmd = &cobra.Command{
 			cmd.OutOrStdout(),
 			"Selected tunnel address: %s\n",
 			selectedIP,
+		)
+
+		selectedPort, err := selectTunnelPort()
+		fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"Selected port: %s\n",
+			selectedPort,
 		)
 
 		return nil
