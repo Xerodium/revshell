@@ -160,6 +160,11 @@ var rootCmd = &cobra.Command{
 			selectedPort,
 		)
 
+		fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"I like beers\n"
+		)
+
 		return nil
 	},
 }
