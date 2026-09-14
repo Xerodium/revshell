@@ -5,13 +5,16 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"os"
 	"sort"
-	"strings"
 	"strconv"
+	"strings"
 
 	"math/rand/v2"
+
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 )
@@ -88,7 +91,7 @@ func selectTunnelAddress() (string, error) {
 	}
 
 	return selectedIP, nil
-} 
+}
 
 func selectTunnelPort() (string, error) {
 	selectedPort := rand.IntN(999) + 9000
@@ -160,13 +163,40 @@ var rootCmd = &cobra.Command{
 			selectedPort,
 		)
 
-		fmt.Fprintf(
-			cmd.OutOrStdout(),
-			"I like beers\n"
-		)
+		establishReversShellListener(selectedPort)
 
 		return nil
 	},
+}
+
+func establishReversShellListener(port string) error {
+	listener, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return fmt.Errorf("listen on port %s: %w", port, err)
+	}
+	defer listener.Close()
+
+	fmt.Printf("\nSetting up port listener on...\n", port)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+
+		// Handle each connection in a separate routine
+		go handleConnection(conn)
+	}
+}
+
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+
+	// Copy data from the connection to standard output,
+	// and from standard input to the connection
+	go io.Copy(os.Stdout, conn)
+	io.Copy(conn, os.Stdin)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
