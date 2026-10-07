@@ -51,6 +51,9 @@ CodeCoverage/
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
 
+# Local Go build output
+/main
+
 # NUnit
 *.VisualState.xml
 TestResult.xml

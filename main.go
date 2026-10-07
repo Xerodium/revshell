@@ -1,6 +1,5 @@
 /*
-Copyright © 2026 NAME HERE @ hi@maxfrancis.me
-
+Copyright © 2026 hi@maxfrancis.me
 */
 package main
 
